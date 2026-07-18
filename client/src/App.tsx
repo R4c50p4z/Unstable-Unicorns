@@ -4,6 +4,8 @@ import type { ServerToClientEvents, ClientToServerEvents, Card, GameState, Lobby
 
 type TypedSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+const NEIGH_DURATION = 20000; // 20 seconds to respond to neigh
+
 // ─── Styles ─────────────────────────────────────────────────
 const styles: Record<string, React.CSSProperties> = {
   app: { fontFamily: "system-ui, sans-serif", maxWidth: 600, margin: "0 auto", padding: 16 },
@@ -27,6 +29,18 @@ const styles: Record<string, React.CSSProperties> = {
   babyOption: { display: "inline-block", width: 120, margin: 8, cursor: "pointer", textAlign: "center" as const },
   babyImg: { width: 80, height: 80, borderRadius: 8, border: "3px solid transparent" },
   babyName: { color: "white", fontSize: 12, marginTop: 4 },
+};
+
+const modalOverlay: React.CSSProperties = {
+  position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  zIndex: 50,
+};
+
+const modalContent: React.CSSProperties = {
+  background: "#1e293b", borderRadius: 16, padding: 24,
+  textAlign: "center", maxWidth: 400, width: "90%",
+  border: "1px solid #334155",
 };
 
 const cardTypeColors: Record<string, string> = {
@@ -111,6 +125,18 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [myIndex, setMyIndex] = useState(-1);
 
+  // Neigh prompt
+  const [neighRequest, setNeighRequest] = useState<{ pendingCardId: string; cardName: string; fromPlayer: string } | null>(null);
+
+  // Target selection
+  const [targetRequest, setTargetRequest] = useState<{ pendingCardId: string; action: string; amount: number; targets: any[] } | null>(null);
+
+  // Notifications
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // Cards selected by player for various purposes
+  const [selectedCardForTarget, setSelectedCardForTarget] = useState<string | null>(null);
+
   useEffect(() => {
     const s: TypedSocket = io();
     setSocket(s);
@@ -143,8 +169,38 @@ export default function App() {
       setGameState(state);
     });
 
+    s.on("your_turn", ({ phase }) => {
+      setNotification("¡Es tu turno!");
+      setTimeout(() => setNotification(null), 3000);
+    });
+
+    s.on("neigh_required", ({ pendingCardId, cardName, fromPlayer }) => {
+      setNeighRequest({ pendingCardId, cardName, fromPlayer });
+    });
+
+    s.on("card_resolved", ({ card, playerIndex }) => {
+      setNotification(`✓ ${card.name} jugada`);
+      setNeighRequest(null);
+      setTargetRequest(null);
+      setTimeout(() => setNotification(null), 2000);
+    });
+
+    s.on("card_neighed", ({ card }) => {
+      setNotification(`✗ ${card.name} fue relinchada`);
+      setNeighRequest(null);
+      setTargetRequest(null);
+      setTimeout(() => setNotification(null), 2000);
+    });
+
+    s.on("target_required", ({ pendingCardId, action, amount, targets }) => {
+      setTargetRequest({ pendingCardId, action, amount: amount ?? 1, targets });
+    });
+
     s.on("error", ({ message }) => {
-      alert(message);
+      setNotification(`Error: ${message}`);
+      setNeighRequest(null);
+      setTargetRequest(null);
+      setTimeout(() => setNotification(null), 3000);
     });
 
     return () => { s.close(); };
@@ -167,7 +223,37 @@ export default function App() {
   const myPlayer = gameState ? gameState.players[myIndex] : null;
   const currentPlayer = gameState ? gameState.players[gameState.currentPlayerIndex] : null;
   const isMyTurn = myPlayer && currentPlayer && myPlayer.id === currentPlayer.id;
+  const isMyAction = isMyTurn && gameState?.phase === "action";
   const selectedBabyIds = lobby.filter((p) => p.babyId).map((p) => p.babyId);
+
+  function handlePlayCard(cardId: string) {
+    if (!isMyAction) return;
+    socket?.emit("play_card", { cardId });
+  }
+
+  function handleNeighPass() {
+    if (!neighRequest) return;
+    socket?.emit("neigh_response", { pendingCardId: neighRequest.pendingCardId, pass: true });
+    setNeighRequest(null);
+  }
+
+  function handleNeighPlay(cardId: string) {
+    if (!neighRequest) return;
+    socket?.emit("neigh_response", { pendingCardId: neighRequest.pendingCardId, pass: false, cardId });
+    setNeighRequest(null);
+  }
+
+  function handleTargetSelect(item: any) {
+    if (!targetRequest) return;
+    const isPlayer = item.playerIndex !== undefined && item.cardId === undefined;
+    socket?.emit("target_selected", {
+      pendingCardId: targetRequest.pendingCardId,
+      targetId: item.cardId,
+      targetPlayerIndex: isPlayer ? item.playerIndex : item.playerIndex,
+    });
+    setTargetRequest(null);
+    setSelectedCardForTarget(null);
+  }
 
   if (!connected) return <Loading message="Conectando al servidor..." />;
 
@@ -271,7 +357,22 @@ export default function App() {
                gameState.phase === "action" ? "Acción" :
                "Final"}
             </div>
+            <div style={{ color: "#64748b", fontSize: 12, marginTop: 4 }}>
+              Mazo: {gameState.deck.length} · Descarte: {gameState.discardPile.length}
+            </div>
           </div>
+
+          {/* Notification */}
+          {notification && (
+            <div style={{
+              position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+              background: "#1e293b", color: "white", padding: "12px 24px",
+              borderRadius: 8, zIndex: 100, fontWeight: "bold",
+              border: "1px solid #334155",
+            }}>
+              {notification}
+            </div>
+          )}
 
           {/* Other players */}
           {gameState.players
@@ -284,10 +385,27 @@ export default function App() {
           {myPlayer && <PlayerStable player={myPlayer} isMe={true} />}
 
           {/* My hand */}
-          {myPlayer && <PlayerHand cards={myPlayer.hand} />}
+          {myPlayer && (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>
+                ✋ Tu mano ({myPlayer.hand.length})
+                {isMyAction && " — pulsa una carta para jugarla"}
+              </div>
+              <div style={styles.hand}>
+                {myPlayer.hand.map((c) => (
+                  <CardView
+                    key={c.id}
+                    card={c}
+                    onClick={() => handlePlayCard(c.id)}
+                    selected={selectedCardForTarget === c.id}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* End turn button */}
-          {isMyTurn && gameState.phase === "action" && (
+          {isMyAction && (
             <div style={{ textAlign: "center", marginTop: 12 }}>
               <button
                 onClick={() => socket?.emit("end_turn")}
@@ -295,6 +413,108 @@ export default function App() {
               >
                 Terminar turno
               </button>
+            </div>
+          )}
+
+          {/* Neigh Modal */}
+          {neighRequest && (
+            <div style={modalOverlay}>
+              <div style={modalContent}>
+                <h3 style={{ color: "white", margin: "0 0 8px 0" }}>🦄 ¡Relincho!</h3>
+                <p style={{ color: "#94a3b8", margin: "0 0 16px 0" }}>
+                  {neighRequest.fromPlayer} jugó <strong style={{ color: "white" }}>{neighRequest.cardName}</strong>
+                </p>
+                <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 12 }}>
+                  ¿Quieres usar un Relincho?
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                  {myPlayer?.hand.filter((c) => c.name === "Relincho").map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => handleNeighPlay(c.id)}
+                      style={{ ...styles.btn, background: "#ef4444", color: "white" }}
+                    >
+                      Relinchar
+                    </button>
+                  ))}
+                  <button
+                    onClick={handleNeighPass}
+                    style={{ ...styles.btn, background: "#475569", color: "white" }}
+                  >
+                    Pasar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Target selection Modal */}
+          {targetRequest && (
+            <div style={modalOverlay}>
+              <div style={{ ...modalContent, maxHeight: "70vh", overflowY: "auto" }}>
+                <h3 style={{ color: "white", margin: "0 0 4px 0" }}>
+                  {targetRequest.action === "discard" && targetRequest.pendingCardId.startsWith("end_hand_")
+                    ? "✋ Descartar hasta el límite"
+                    : targetRequest.action === "destroy"
+                      ? "💥 Elige una carta para destruir"
+                      : targetRequest.action === "sacrifice"
+                        ? "🔥 Elige una carta para sacrificar"
+                        : targetRequest.action === "steal"
+                          ? "🔀 Elige una carta para hurtar"
+                          : `🎯 Elige objetivo (${targetRequest.action})`}
+                </h3>
+                {targetRequest.amount > 1 && (
+                  <p style={{ color: "#fbbf24", fontSize: 13, margin: "4px 0 8px 0" }}>
+                    Debes elegir {targetRequest.amount}
+                  </p>
+                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", marginTop: 8 }}>
+                  {targetRequest.targets.map((t: any, i: number) => (
+                    <div key={i}>
+                      {t.cardId ? (
+                        <div
+                          onClick={() => handleTargetSelect(t)}
+                          style={{
+                            ...styles.card,
+                            cursor: "pointer",
+                            borderColor: selectedCardForTarget === t.cardId ? "#7c3aed" : "#333",
+                          }}
+                        >
+                          {t.image && <img src={`/cards/${t.image}`} alt={t.cardName} style={styles.cardImg} />}
+                          <div style={styles.cardName}>{t.cardName}</div>
+                          {t.playerIndex !== undefined && (
+                            <div style={{ fontSize: 9, color: "#94a3b8" }}>
+                              de {gameState.players[t.playerIndex]?.name}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleTargetSelect(t)}
+                          style={{
+                            ...styles.btn,
+                            background: "#334155",
+                            color: "white",
+                            minWidth: 100,
+                          }}
+                        >
+                          {t.name || t.cardName}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {!targetRequest.pendingCardId.startsWith("end_hand_") && (
+                  <div style={{ textAlign: "center", marginTop: 12 }}>
+                    <button
+                      onClick={() => { setTargetRequest(null); }}
+                      style={{ ...styles.btn, background: "#475569", color: "white" }}
+                    >
+                      Saltar (opcional)
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

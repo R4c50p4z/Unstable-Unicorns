@@ -125,6 +125,16 @@ export interface GameState {
   turnCount: number;
 }
 
+// ─── Pending card (for Neigh resolution) ───────────────────
+export interface PendingCard {
+  id: string;
+  card: Card;
+  playerIndex: number;
+  neighResponded: Set<number>;
+  neighResults: Map<number, boolean>; // playerIndex → whether they neighed
+  resolved: boolean;
+}
+
 // ─── Socket.IO Events ───────────────────────────────────────
 export interface ServerToClientEvents {
   lobby_update: (data: { players: LobbyPlayer[] }) => void;
@@ -133,6 +143,12 @@ export interface ServerToClientEvents {
   game_start: (data: { state: GameState; yourIndex: number }) => void;
   game_update: (data: { state: GameState }) => void;
   your_turn: (data: { phase: Phase }) => void;
+  turn_phase: (data: { phase: Phase; playerIndex: number }) => void;
+  draw_card: (data: { card: Card }) => void;
+  neigh_required: (data: { pendingCardId: string; cardName: string; fromPlayer: string }) => void;
+  card_resolved: (data: { pendingCardId: string; card: Card; playerIndex: number }) => void;
+  card_neighed: (data: { pendingCardId: string; card: Card; playerIndex: number }) => void;
+  target_required: (data: { pendingCardId: string; action: EffectAction; amount?: number; targets: any[] }) => void;
   error: (data: { message: string }) => void;
 }
 
@@ -140,6 +156,8 @@ export interface ClientToServerEvents {
   join_lobby: (data: { name: string }) => void;
   start_game: () => void;
   select_baby: (data: { cardId: string }) => void;
-  play_card: (data: { cardId: string; targetId?: string }) => void;
+  play_card: (data: { cardId: string }) => void;
+  neigh_response: (data: { pendingCardId: string; pass: boolean; cardId?: string }) => void;
+  target_selected: (data: { pendingCardId: string; targetId?: string; targetPlayerIndex?: number }) => void;
   end_turn: () => void;
 }
