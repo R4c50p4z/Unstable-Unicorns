@@ -3,7 +3,7 @@
 ## Stack
 - **Cliente**: React + TypeScript + Vite (web app responsive, PWA-ready)
 - **Servidor**: Node.js + Express + Socket.IO + TypeScript
-- **Compartido**: Módulo `shared/` con tipos TypeScript
+- **Compartido**: Módulo `shared/` con tipos TypeScript + datos de cartas
 - **Monorepo**: npm workspaces (shared, server, client)
 
 ## Arquitectura
@@ -13,23 +13,31 @@
 - Los jugadores se conectan desde el móvil a `http://IP_LOCAL:3000`
 - Comunicación en tiempo real via Socket.IO
 
-## Estado actual - Fase 1 completada
+## Estado actual - Fase 2 completada
 Estructura del proyecto creada y funcionando:
-- Server básico con Express + Socket.IO + lobby
-- Client con React + Vite conectado al server via Socket.IO
-- Tipos compartidos (Card, Player, GameState, eventos)
+- Server con Express + Socket.IO + lobby + selección de bebés + motor de juego básico
+- Client con React + Vite (pantallas: unirse, lobby, elegir bebé, tablero de juego)
+- Tipos compartidos (Card, Player, GameState, efectos, eventos)
+- **127 cartas del Base Deck 2nd Edition** en español
+- Sistema de efectos (al entrar, inicio de turno, continuo, instantáneo)
+- Reglas para 2 jugadores (quitar cartas específicas, dar Relincho extra)
+- Selección de Bebé Unicornio (cada jugador elige uno único)
+- UI en español
 - Repo en GitHub: https://github.com/R4c50p4z/Unstable-Unicorns.git
 
-## Próxima fase (Fase 2)
-- Datos completos de las ~135 cartas del Base Deck 2nd Edition en JSON
+## Próximos pasos (Fase 3)
+- Game Engine completo: jugar cartas, fases de turno, sistema de Relinchos
+- Efectos de cartas Mágicas, Ventajas, Desventajas
+- Condición de victoria + desempate
 - Descargar imágenes de cartas de Unstable Games Wiki
-- Sistema de efectos de cartas (pendiente de diseñar)
+- Mejoras de UI/UX
 
 ## Decisiones tomadas
 - Juego base solamente (sin expansiones)
 - Multijugador local via red WiFi (LAN party)
 - Imágenes de cartas desde Unstable Games Wiki (uso personal)
-- Modo hot-seat NO, cada jugador desde su propio móvil
+- Todo el juego en español (nombres oficiales de la edición española)
+- Selección de Bebé Unicornio al inicio (skin única por jugador)
 
 ## Cómo arrancar
 ```bash
